@@ -1,86 +1,123 @@
 // SPDX-License-Identifier: MIT
-pragma solidity >=0.8.0;
+pragma solidity ^0.8.13;
 
-contract StakingRewards {
-    IERC20 public rewardsToken;
-    IERC20 public stakingToken;
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "openzeppelin-solidity/contracts/utils/math/SafeMath.sol";
 
-    uint public rewardRate = 100;
-    uint public lastUpdateTime;
-    uint public rewardPerTokenStored;
 
-    mapping(address => uint) public userRewardPerTokenPaid;
-    mapping(address => uint) public rewards;
+contract MetaToken is ERC20, Ownable {
+    using SafeMath for uint256;
+    address[] internal stakeholders;
+    uint256 public rate = 1000;
 
-    uint private _totalSupply;
-    mapping(address => uint) private _balances;
-
-    constructor(address _stakingToken, address _rewardsToken) {
-        stakingToken = IERC20(_stakingToken);
-        rewardsToken = IERC20(_rewardsToken);
+    mapping(address => uint256) internal stakes;
+    mapping(address => uint256) internal rewards;
+    
+   
+    constructor() ERC20("MetaToken", "MTN") {
+        _mint(msg.sender, 1000 * 10 ** 18);
     }
 
-    function rewardPerToken() public view returns (uint) {
-        if (_totalSupply == 0) {
-            return rewardPerTokenStored;
+    function modifyTokenPrice(uint256 newRate) public onlyOwner {
+        rate = newRate;
+    }
+    
+    
+    function buyToken(address buyer) public payable returns (uint256 amount) {
+        require (msg.value > 0, "You need money for this transaction");
+        amount = msg.value * rate;
+        _mint(buyer, amount);
+    }
+
+    function isStakeholder(address stakeholder_address) public view returns(bool, uint256) {
+        for (
+            uint256 verified = 0;
+            verified < stakeholders.length;
+            verified += 1){
+                if (stakeholder_address == stakeholders[verified]) return (true, verified);
+            }
+        return (false, 0);
+    }
+
+    function addStakeholder(address staker) public {
+        (bool _isStakeholder, ) = isStakeholder(staker);
+        if(!_isStakeholder) stakeholders.push(staker);
+    }
+
+    function removeStakeholder(address staker) public {
+        (bool _isStakeholder, uint256 verified) = isStakeholder(staker);
+        if(_isStakeholder){
+            stakeholders[verified] = stakeholders[stakeholders.length - 1];
+            stakeholders.pop();
         }
-        return
-            rewardPerTokenStored +
-            (((block.timestamp - lastUpdateTime) * rewardRate * 1e18) / _totalSupply);
     }
 
-    function earned(address account) public view returns (uint) {
-        return
-            ((_balances[account] *
-                (rewardPerToken() - userRewardPerTokenPaid[account])) / 1e18) +
-            rewards[account];
+    function viewStakeholder(address staker) public {
+        (bool _isStakeholder,) = isStakeholder(staker);
+        if(!_isStakeholder) stakeholders.push(staker);
     }
 
-    modifier updateReward(address account) {
-        rewardPerTokenStored = rewardPerToken();
-        lastUpdateTime = block.timestamp;
-
-        rewards[account] = earned(account);
-        userRewardPerTokenPaid[account] = rewardPerTokenStored;
-        _;
+    
+    function stakeOf(address staker) public view returns (uint256) {
+        return stakes[staker];
     }
 
-    function stake(uint _amount) external updateReward(msg.sender) {
-        _totalSupply += _amount;
-        _balances[msg.sender] += _amount;
-        stakingToken.transferFrom(msg.sender, address(this), _amount);
+
+    function combinedStake() public view returns(uint256) {
+        uint256 totalStakes = 0;
+        for (
+            uint256 verified = 0; 
+            verified < stakeholders.length; 
+            verified += 1){
+                totalStakes = totalStakes.add(stakes[stakeholders[verified]]);
+            }
+        return totalStakes;
     }
 
-    function withdraw(uint _amount) external updateReward(msg.sender) {
-        _totalSupply -= _amount;
-        _balances[msg.sender] -= _amount;
-        stakingToken.transfer(msg.sender, _amount);
+    function createStake(address staker, uint256 _stake) public {
+        _burn(staker, _stake);
+        if(stakes[staker] == 0) addStakeholder(staker);
+        stakes[staker] = stakes[staker].add(_stake);
     }
 
-    function getReward() external updateReward(msg.sender) {
-        uint reward = rewards[msg.sender];
-        rewards[msg.sender] = 0;
-        rewardsToken.transfer(msg.sender, reward);
+
+    function removeStake(address staker, uint256 _stake) public {
+        stakes[staker] = stakes[staker].sub(_stake);
+        if(stakes[staker] == 0) removeStakeholder(staker);
+        _mint(staker, _stake);
     }
-}
 
-interface IERC20 {
-    function totalSupply() external view returns (uint);
+    
+    function rewardOf(address staker) public view returns(uint256) {
+        return rewards[staker];
+    }
 
-    function balanceOf(address account) external view returns (uint);
+    function combinedRewards() public view returns(uint256) {
+        uint256 totalRewards = 0;
+        for (
+            uint256 verified = 0; 
+            verified < stakeholders.length; 
+            verified += 1){
+                totalRewards = totalRewards.add(rewards[stakeholders[verified]]);
+            }
+        return totalRewards;
+    }
 
-    function transfer(address recipient, uint amount) external returns (bool);
 
-    function allowance(address owner, address spender) external view returns (uint);
+    
+    function calculateReward(address staker) public view returns(uint256) {
+        return stakes[staker] /100;
+    }
 
-    function approve(address spender, uint amount) external returns (bool);
 
-    function transferFrom(
-        address sender,
-        address recipient,
-        uint amount
-    ) external returns (bool);
-
-    event Transfer(address indexed from, address indexed to, uint value);
-    event Approval(address indexed owner, address indexed spender, uint value);
-}
+    function distributeRewards() public onlyOwner {
+        for (
+            uint256 verified = 0;
+            verified < stakeholders.length;
+            verified += 1){
+                address stakeholder = stakeholders[verified];
+                uint256 reward = calculateReward(stakeholder);
+                rewards[stakeholder] = rewards[stakeholder].add(reward);
+            }
+        }
