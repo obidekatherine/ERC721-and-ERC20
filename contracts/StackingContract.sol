@@ -111,7 +111,7 @@ contract MetaToken is ERC20, Ownable {
     }
 
 
-  /*  function distributeRewards() public onlyOwner {
+    function distributeRewards() public onlyOwner {
         for (
             uint256 verified = 0;
             verified < stakeholders.length;
@@ -119,5 +119,5 @@ contract MetaToken is ERC20, Ownable {
                 address stakeholder = stakeholders[verified];
                 uint256 reward = calculateReward(stakeholder);
                 rewards[stakeholder] = rewards[stakeholder].add(reward);
-            }*/
+            }
         }
